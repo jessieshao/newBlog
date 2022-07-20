@@ -8,7 +8,7 @@
     <link rel="icon" href="/newBlog/img/logo.ico">
     <meta name="description" content="随笔瞎写">
     
-    <link rel="preload" href="/newBlog/assets/css/0.styles.53f29ec9.css" as="style"><link rel="preload" href="/newBlog/assets/js/app.c55134bc.js" as="script"><link rel="preload" href="/newBlog/assets/js/2.de29bcd8.js" as="script"><link rel="preload" href="/newBlog/assets/js/10.4d1793ef.js" as="script"><link rel="prefetch" href="/newBlog/assets/js/11.f7d4f87f.js"><link rel="prefetch" href="/newBlog/assets/js/12.2dd872ac.js"><link rel="prefetch" href="/newBlog/assets/js/3.87a58ff7.js"><link rel="prefetch" href="/newBlog/assets/js/4.734c6949.js"><link rel="prefetch" href="/newBlog/assets/js/5.3d1ff5d4.js"><link rel="prefetch" href="/newBlog/assets/js/6.efae1bb5.js"><link rel="prefetch" href="/newBlog/assets/js/7.b186dabc.js"><link rel="prefetch" href="/newBlog/assets/js/8.ce5e14be.js"><link rel="prefetch" href="/newBlog/assets/js/9.424a19fd.js">
+    <link rel="preload" href="/newBlog/assets/css/0.styles.53f29ec9.css" as="style"><link rel="preload" href="/newBlog/assets/js/app.22129294.js" as="script"><link rel="preload" href="/newBlog/assets/js/2.de29bcd8.js" as="script"><link rel="preload" href="/newBlog/assets/js/10.942dce1b.js" as="script"><link rel="prefetch" href="/newBlog/assets/js/11.f7d4f87f.js"><link rel="prefetch" href="/newBlog/assets/js/12.5f33e574.js"><link rel="prefetch" href="/newBlog/assets/js/3.87a58ff7.js"><link rel="prefetch" href="/newBlog/assets/js/4.734c6949.js"><link rel="prefetch" href="/newBlog/assets/js/5.3d1ff5d4.js"><link rel="prefetch" href="/newBlog/assets/js/6.efae1bb5.js"><link rel="prefetch" href="/newBlog/assets/js/7.97c721ed.js"><link rel="prefetch" href="/newBlog/assets/js/8.ce5e14be.js"><link rel="prefetch" href="/newBlog/assets/js/9.a8a0cd25.js">
     <link rel="stylesheet" href="/newBlog/assets/css/0.styles.53f29ec9.css">
   </head>
   <body>
@@ -77,12 +77,103 @@
       }
 	}	
 }
-</code></pre></div><blockquote><p>几个需要注意的点：</p> <ul><li><code>resolve</code>和<code>reject</code>声明写在<code>constructor</code>同级时需要bind绑定<code>this</code></li> <li>需要<code>try...catch...</code>捕获异常，调用reject</li></ul></blockquote> <p>规定必须给Promise对象传入一个执行函数，否则将会报错。
+</code></pre></div><blockquote><p>几个需要注意的点：</p> <ul><li><code>resolve</code>和<code>reject</code>声明写在<code>constructor</code>同级时需要bind绑定<code>this</code></li> <li>需要<code>try...catch...</code>捕获异常，调用reject</li></ul></blockquote> <h3 id="异步"><a href="#异步" class="header-anchor">#</a> 异步</h3> <p>目前基本用法的例子已经可以正确通过了，但是我们都知道，promise是一个异步任务，而我们目前实现的是一个同步任务。所以目前的代码存在问题</p> <h4 id="后续为同步代码"><a href="#后续为同步代码" class="header-anchor">#</a> 后续为同步代码</h4> <p>例如在刚刚的例子中最后一句加入<code>console.log('end')</code></p> <p>发现end就是最后打印的，这显然不符合promise的执行顺序，promise.then的执行应该在同步函数后，所以需要把onFulfilled、onRejected改为异步函数（此处用宏任务代替微任务）</p> <h4 id="executor为异步函数时"><a href="#executor为异步函数时" class="header-anchor">#</a> executor为异步函数时</h4> <div class="language- extra-class"><pre class="language-text"><code>const promise = new Promise((resolve, reject) =&gt; {
+  setTimeout(()=&gt;{
+    console.log('setTimeout')
+    resolve('成功');
+  },0)
+  
+}).then(
+  (data) =&gt; {
+    console.log('success', data)
+  },
+  (err) =&gt; {
+    console.log('faild', err)
+  }
+)
+</code></pre></div><p>输出结果为 <code>setTimeout</code></p> <p>这段代码的执行顺序为：</p> <p>实例化promise，执行传入的executor函数，状态为pending，遇到settimeout，setTimeout中的函数放入宏任务队列，执行promise的then方法，promise结束，执行宏任务中的settimeout回调，打印setTimeout，执行resolve。</p> <p>但是此时.then方法已经执行结束了，所以最终打印的只有settimeout</p> <h4 id="resolve-reject同步执行"><a href="#resolve-reject同步执行" class="header-anchor">#</a> resolve\reject同步执行</h4> <p>resolve、reject、onFulfilled、onRejected都是回调函数，</p> <div class="language- extra-class"><pre class="language-text"><code>console.log(&quot;START&quot;)
+const p2 = new Promise(resolve =&gt; resolve(&quot;RESOLVED&quot;))
+console.log(p2.value)
+console.log(&quot;END&quot;)
+</code></pre></div><p>输出</p> <div class="language- extra-class"><pre class="language-text"><code>START
+RESOLVED
+END
+</code></pre></div><h4 id="如何把我们的promise改成异步"><a href="#如何把我们的promise改成异步" class="header-anchor">#</a> 如何把我们的promise改成异步？</h4> <p>思路：reslove\reject异步调用，then中判断pending状态，使用settimeout</p> <div class="language- extra-class"><pre class="language-text"><code>class Promise{
+	constructor(executor){
+		this.status = 'PENDING'
+		this.value = undefined
+		this.reason = undefined
+        this.onFulfilledCallback = []
+        this.onRejectedCallback = []
+
+		let resolve = (value) =&gt;{
+            // 状态为 PENDING 时才可以更新状态，防止 executor 中调用了两次 resovle/reject 方法
+            if(this.status ===  'PENDING') {
+              this.status = 'FULFILLED';
+              this.value = value;
+            }
+		}
+
+		let reject = (reason) =&gt;{
+            if(this.status ===  'PENDING') {
+              this.status = 'REJECTED';
+              this.reason = reason;
+            }
+		}
+
+		try{
+			executor(resolve,reject)
+		}catch(error){
+			reject(error)
+		}
+	}
+
+	then(onFulfilled,onRejected){
+//       if (this.status === 'PENDING') {
+//         setTimeout(()=&gt;{
+//         onFulfilled(this.value)
+//         },0)
+//       }
+      
+      if (this.status === 'FULFILLED') {
+        setTimeout(()=&gt;{
+        onFulfilled(this.value)
+        },0)
+      }
+
+      if (this.status === 'REJECTED') {
+        setTimeout(()=&gt;{
+        onRejected(this.reason)
+        },0)
+      }
+	}	
+}
+
+const promise = new Promise((resolve, reject) =&gt; {
+  setTimeout(()=&gt;{
+    console.log('setTimeout')
+    resolve('成功');
+  },0)
+  
+}).then(
+  (data) =&gt; {
+    console.log('success', data)
+  },
+  (err) =&gt; {
+    console.log('faild', err)
+  }
+)
+console.log('end')
+// console.log(&quot;START&quot;)
+// const p2 = new Promise(resolve =&gt; resolve(&quot;RESOLVED&quot;))
+// console.log(p2.value)
+// console.log(&quot;END&quot;)
+</code></pre></div><p>规定必须给Promise对象传入一个执行函数，否则将会报错。
 Promise中有throw的话，就相当于执行了reject()</p></div> <footer class="page-edit"><!----> <div class="last-updated"><span class="prefix">Last Updated:</span> <span class="time">7/20/2022, 1:01:41 AM</span></div></footer> <div class="page-nav"><p class="inner"><!----> <span class="next"><a href="/newBlog/articles/JavaScript/一次搞懂-JS事件循环EventLoop.html">
         一次搞懂-JS事件循环EventLoop
       </a>
       →
     </span></p></div> </main></div><div class="global-ui"><!----></div></div>
-    <script src="/newBlog/assets/js/app.c55134bc.js" defer></script><script src="/newBlog/assets/js/2.de29bcd8.js" defer></script><script src="/newBlog/assets/js/10.4d1793ef.js" defer></script>
+    <script src="/newBlog/assets/js/app.22129294.js" defer></script><script src="/newBlog/assets/js/2.de29bcd8.js" defer></script><script src="/newBlog/assets/js/10.942dce1b.js" defer></script>
   </body>
 </html>
